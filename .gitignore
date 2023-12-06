@@ -55,3 +55,7 @@ tools/emscripten/emsdk
 *.dSYM/
 *.su
 
+/.idea/logue-sdk.iml
+/.idea/modules.xml
+/.idea/inspectionProfiles/profiles_settings.xml
+/.idea/vcs.xml

@@ -37,24 +37,7 @@ constexpr size_t c_parameterNoiseGateOn = 14;
 constexpr size_t c_parameterNoiseTholdTime = 15;
 
 
- uint32_t v_attack;
- uint32_t v_release;
- uint8_t v_threshold;
- uint8_t v_ratio;
- uint16_t v_drive;
- uint16_t v_makeup;
- float v_sampleRate;
- 
- int8_t v_knee;
- int8_t v_dryWet;
- int8_t v_gain;
- uint8_t v_sidechain;
- int8_t v_noiseThreshold;
- float v_noiseRelease;
- uint8_t v_noiseGateOn;
 
-
- 
 class MasterFX {
  public:
   /*===========================================================================*/
@@ -65,62 +48,56 @@ class MasterFX {
   /* Lifecycle Methods. */
   /*===========================================================================*/
 
-  MasterFX(void) {}
+  MasterFX(void) :
+    v_attack(30),
+    v_release(300),
+    v_threshold(0),
+    v_ratio(1),
+    v_drive(0),
+    v_makeup(0),
+    v_sampleRate(48000.0f),
+    v_knee(1),
+    v_dryWet(0),
+    v_gain(0),
+    v_sidechain(0),
+    v_noiseThreshold(1),
+    v_noiseRelease(0),
+    v_noiseGateOn(0),
+    unity(vdup_n_f32(1.0f)),
+    envelope(vdup_n_f32(0.0f)),
+    rms(vdupq_n_f32(0.0f)),
+    noiseGain(vdup_n_f32(1.0f)),
+    envDetector(48000.0f),
+    RMS(2400, 48000.0f),  // Reduced window: 50ms at 48kHz for memory efficiency
+    pregainCoeff(1.0f),
+    driveLinear(1.0f),
+    makeupCoeff(1.0f),
+    noiseThresholdLinear(0.0f),
+    noiseReleaseCoeff(1.0f)
+  {
+    // Initialize bitmap to all off
+    for (int i = 0; i < 32; i++) {
+      rmsBitmap[i] = 0x00U;
+    }
+  }
+
   virtual ~MasterFX(void) {}
 
   inline int8_t Init(const unit_runtime_desc_t * desc) {
-
-    
-    
-    v_attack = 30;
-    v_release = 300;
-    v_threshold = 0;
-    v_ratio = 1;
-    v_drive = 0;
-    v_makeup = 0;
-    v_sampleRate = 48000.0f;
-    v_knee = 1;
-    v_dryWet = 0;
-    v_gain = 0;
-    v_noiseThreshold = 1;
-    v_noiseRelease = 0;
-    v_noiseGateOn = 0;
-    float rmsSamples = 12000.0f;
-    float32x2_t envelope = vdup_n_f32(0.0f);
-
-    uint8_t rmsBitmap[32] = {
-      0xFFU, 0xFFU, 
-      0xFFU, 0xFFU, 
-      0xFFU, 0xFFU, 
-      0xFFU, 0xFFU, 
-      0xFFU, 0xFFU, 
-      0xFFU, 0xFFU, 
-      0xFFU, 0xFFU, 
-      0xFFU, 0xFFU,
-      0xFFU, 0xFFU, 
-      0xFFU, 0xFFU, 
-      0xFFU, 0xFFU, 
-      0xFFU, 0xFFU, 
-      0xFFU, 0xFFU, 
-      0xFFU, 0xFFU, 
-      0xFFU, 0xFFU, 
-      0xFFU, 0xFFU };
-    
-   
-
-
-  // Check compatibility of samplerate with unit, for drumlogue should be 48000
-    if (desc->samplerate != 48000)  // Note: samplerate format may change to add fractional bits
+    // Check compatibility of samplerate with unit, for drumlogue should be 48000
+    if (desc->samplerate != 48000)
       return k_unit_err_samplerate;
 
     // Check compatibility of frame geometry
     // Note: input format: [ main_left, main_right, sidechain_left, sidechain_right ]
-    // Note: Sidechain feature may unfortunately get removed before official release, in which case
-    //       there will be only 2 input channels
     if (desc->input_channels != 4 || desc->output_channels != 2)
       return k_unit_err_geometry;
 
-    // Note: if need to allocate some memory can do it here and return k_unit_err_memory if getting allocation errors
+    v_sampleRate = desc->samplerate;
+
+    // Initialize envelope detector with correct sample rate
+    envDetector = EnvelopeDetector(v_sampleRate);
+    RMS = RMSCalculator(2400, v_sampleRate);  // 50ms window at 48kHz
 
     return k_unit_err_none;
   }
@@ -130,7 +107,10 @@ class MasterFX {
   }
 
   inline void Reset() {
-    // Note: Reset effect state.
+    // Reset effect state
+    envelope = vdup_n_f32(0.0f);
+    noiseGain = vdup_n_f32(1.0f);
+    RMS.reset();
   }
 
   inline void Resume() {
@@ -147,38 +127,27 @@ class MasterFX {
   /* Other Public Methods. */
   /*===========================================================================*/
 
-    inline float32x2_t toDecibel(float input) {
-        return vdup_n_f32(20 * log10f(fabs(input)));
-    };
-    
-    inline float32x2_t toDecibel32x2(float32x2_t input) {
-        float32x2_t result;
-        float32x2_t absInput = vabs_f32(input);
-    
-        for (int i = 0; i < 2; i++) {
-            float value = vget_lane_f32(absInput, i);
-            float decibel = 20.0f * log10f(value);
-            vset_lane_f32(decibel, result, i);
-        }
-    
-        return result;
-    };
+  // Fast inline helper: convert dB to linear amplitude using lookup or approximation
+  inline float fastDbToLinear(float db) {
+    // For real-time: powf(10.0f, db / 20.0f) is expensive
+    // Using fast approximation or pre-calculated in setParameter is better
+    return powf(10.0f, db / 20.0f);
+  }
 
-   inline float32x2_t toLinearAmplitude(float input) {
-       return vdup_n_f32(pow(10.0f, input / 20.0f));
-   }
+  inline float32x2_t toLinearAmplitude(float input) {
+    return vdup_n_f32(fastDbToLinear(input));
+  }
 
-   inline float32x2_t sidechainedRMS(float32x2_t audioInput, float32x2_t sidechainInput) {
-       uint32x2_t comparison = vcgt_f32(sidechainInput, audioInput);
-       return vbsl_f32(comparison, sidechainInput, audioInput);
-   }
+  inline float32x2_t sidechainedRMS(float32x2_t audioInput, float32x2_t sidechainInput) {
+    uint32x2_t comparison = vcgt_f32(sidechainInput, audioInput);
+    return vbsl_f32(comparison, sidechainInput, audioInput);
+  }
 
   fast_inline void Process(const float * in, float * out, size_t frames) {
-    EnvelopeDetector envDetector = EnvelopeDetector(v_sampleRate);
-    float32x4_t inSamples;  
+    // Declare all variables outside the loop
+    float32x4_t inSamples;
     float32x2_t audioSamples;
     float32x2_t sidechainSamples;
-    float32x2_t pregain;
     float32x2_t threshold;
     float32x2_t ratio;
     float32x2_t delta;
@@ -190,124 +159,133 @@ class MasterFX {
     uint32x2_t belowLower;
     uint32x2_t aboveUpper;
     float32x2_t slope;
+    float32x2_t slopeDiv;
     float32x2_t kneeRatio;
-    float linear_drive;
-    float32x2_t noiseGain;
-    float32x2_t noise_threshold;
-    float32x2_t noiseRelCoeff;
+    float32x2_t kneeGain;
     float32x2_t absAudioSamples;
-    uint32x2_t condition;
-    float32x2_t postgain;
-    float _dryWetParameter;
+    uint32x2_t gateCondition;
+    float32x2_t gateGainTarget;
     float32x2_t dryWetParameter;
     float32x2_t inverseDryWet;
-    float32x2_t dryMixingFactor;
-    float32x2_t wetMixingFactor;
     float32x2_t drySamples;
     float32x2_t wetSamples;
     float32x2_t outputSamples;
     float32x2_t audioRMS;
-    
-    
+    float32x2_t clampThreshold;
+    uint32x2_t positiveClamp;
+    float32x2_t clampedPositive;
+    float32x2_t clampedNegative;
+
     const float * __restrict in_p = in;
     float * __restrict out_p = out;
     const float * out_e = out_p + (frames << 1);  // assuming stereo output
-   
-        for (; out_p != out_e; in_p += 4, out_p += 2) {
-    
-        // Load a vector of four input samples (two stereo audio pairs and two sidechain pairs)
+
+    for (; out_p != out_e; in_p += 4, out_p += 2) {
+        // Load a vector of four input samples (main L/R, sidechain L/R)
         inSamples = vld1q_f32(in_p);
 
-        // Extract audio and sidechain samples using ARM NEON intrinsics
+        // Extract audio and sidechain samples
         audioSamples = vget_low_f32(inSamples);
-        sidechainSamples =vget_high_f32(inSamples);
+        sidechainSamples = vget_high_f32(inSamples);
 
-        // Apply pre-gain using ARM NEON intrinsics
-        pregain = vdup_n_f32(1.0f + powf(10.0f, v_gain / 20.0f));
-        audioSamples = vmul_f32(audioSamples, pregain);
+        // Apply pre-gain (calculated in setParameter)
+        audioSamples = vmul_f32(audioSamples, vdup_n_f32(pregainCoeff));
 
-        
+        // Update envelope follower using class member envDetector
         envelope = envDetector.processSample(inSamples, envelope, v_sidechain, v_attack, v_release);
 
+        // Compression threshold and ratio (converted to linear in setParameter would be better)
         threshold = toLinearAmplitude(v_threshold);
-        ratio = vdup_n_f32(1.0f/v_ratio);
+        ratio = vdup_n_f32(1.0f / (v_ratio > 0 ? v_ratio : 1));
 
-        delta = vsub_f32(threshold, envelope); // delta of RMS/envelope and compression threshold
-        theta = vcle_f32(delta, vdup_n_f32(0.0f)); // true means above compression threshold
-        
+        // Calculate how far we are from threshold
+        delta = vsub_f32(envelope, threshold);
+        theta = vcgt_f32(delta, vdup_n_f32(0.0f)); // true means above threshold
+
+        // Soft knee compression
         if (v_knee != 0) {
-        
             kneeWidth = toLinearAmplitude(v_knee);
-            lowerThreshold = vsub_f32(threshold, (kneeWidth/ vdup_n_f32(4.0f))); // div by 4 because knee is 0-12db stored as 0-24 for half values
-            upperThreshold = vadd_f32(threshold, (kneeWidth / vdup_n_f32(4.0f)));
-            belowLower = vclt_f32(delta, lowerThreshold);
-            aboveUpper = vcgt_f32(delta, upperThreshold);
-            
-            slope = vsub_f32(ratio, vdup_n_f32(1.0f)) / vdup_n_f32(v_knee / 2.0f); //slope is based on knee in dB
-            kneeRatio = vadd_f32(vdup_n_f32(1.0f), vmul_f32(vneg_f32(delta), slope));
+            // Using vdiv would be better but may not be available, use reciprocal estimate
+            float32x2_t quarter = vdup_n_f32(0.25f);
+            lowerThreshold = vsub_f32(threshold, vmul_f32(kneeWidth, quarter));
+            upperThreshold = vadd_f32(threshold, vmul_f32(kneeWidth, quarter));
 
-            kneeRatio = vmul_f32(vmul_f32(vdup_n_f32(-1.0f),delta), vsub_f32(vdup_n_f32(1.0f), (vdup_n_f32(1.0) / kneeRatio)));
-            compressionGain = vbsl_f32(belowLower, unity, kneeRatio);
+            belowLower = vclt_f32(envelope, lowerThreshold);
+            aboveUpper = vcgt_f32(envelope, upperThreshold);
+
+            // Calculate soft knee slope
+            // slope = (1 - ratio) / kneeWidth_dB
+            float kneeWidthDb = v_knee / 2.0f;
+            float slopeScalar = (1.0f - (1.0f / (v_ratio > 0 ? v_ratio : 1))) / (kneeWidthDb > 0 ? kneeWidthDb : 1);
+
+            // Knee gain calculation: simplified approach
+            float32x2_t excessDb = vmul_f32(delta, vdup_n_f32(slopeScalar));
+            kneeGain = vsub_f32(unity, excessDb);
+
+            // Select appropriate gain: unity below knee, kneeGain in knee, ratio above
+            compressionGain = vbsl_f32(belowLower, unity, kneeGain);
             compressionGain = vbsl_f32(aboveUpper, ratio, compressionGain);
         } else {
+            // Hard knee: apply ratio above threshold, unity below
             compressionGain = vbsl_f32(theta, ratio, unity);
         }
-        
-        audioSamples = vmul_f32(audioSamples, compressionGain);   
-        
 
-       if (v_drive > 0) {
-            linear_drive = pow(10.0f, -v_drive / 20.0f);
-            audioSamples = vcge_f32(audioSamples, vdup_n_f32(0.0f)) ? vmin_f32(audioSamples, vdup_n_f32(linear_drive)) : vmax_f32(audioSamples, vdup_n_f32(-linear_drive));
+        audioSamples = vmul_f32(audioSamples, compressionGain);
+
+        // Soft clipping / drive (calculated in setParameter)
+        if (v_drive > 0) {
+            clampThreshold = vdup_n_f32(driveLinear);
+            positiveClamp = vcge_f32(audioSamples, vdup_n_f32(0.0f));
+
+            // Positive samples: clamp to +driveLinear
+            clampedPositive = vmin_f32(audioSamples, clampThreshold);
+            // Negative samples: clamp to -driveLinear
+            clampedNegative = vmax_f32(audioSamples, vneg_f32(clampThreshold));
+
+            audioSamples = vbsl_f32(positiveClamp, clampedPositive, clampedNegative);
         }
 
-        // Noise Gate
-
-       if (v_noiseGateOn) {
-            noiseGain = vdup_n_f32(1.0f);
-
-            // Calculate noise_threshold using NEON intrinsics
-            noise_threshold = vdup_n_f32(powf(10.0f, v_noiseThreshold / 20.0f));
-
-            // Calculate release_coeff using NEON intrinsics
-            noiseRelCoeff = vdup_n_f32(exp(-1.0f / ((v_noiseRelease / 1000.0f) * v_sampleRate)));
-            // Apply the noise gate and gain adjustment
+        // Noise Gate (using pre-calculated coefficients)
+        if (v_noiseGateOn) {
             absAudioSamples = vabs_f32(audioSamples);
-            condition = vclt_f32(absAudioSamples, noise_threshold);
-            noiseGain = vmin_f32(noiseGain, vmul_f32(noiseGain, noiseRelCoeff));
-            noiseGain = vadd_f32(noiseGain, vmul_f32(noiseGain, vreinterpret_f32_u32(condition)));
-           
+            gateCondition = vclt_f32(absAudioSamples, vdup_n_f32(noiseThresholdLinear));
+
+            // If below threshold, reduce gain; otherwise target gain = 1.0
+            gateGainTarget = vbsl_f32(gateCondition, vdup_n_f32(0.0f), unity);
+
+            // Smooth the gain change
+            float32x2_t gainDelta = vsub_f32(gateGainTarget, noiseGain);
+            float32x2_t coeffToUse = vbsl_f32(gateCondition,
+                                              vdup_n_f32(noiseReleaseCoeff),
+                                              vdup_n_f32(0.1f)); // Fast attack for gate open
+            noiseGain = vadd_f32(noiseGain, vmul_f32(gainDelta, vsub_f32(unity, coeffToUse)));
+
             audioSamples = vmul_f32(audioSamples, noiseGain);
         }
 
-        // Apply makeup gain using ARM NEON intrinsics
-        postgain = vdup_n_f32(1.0f + powf(10.0f, v_makeup / 20.0f));
-        audioSamples = vmul_f32(audioSamples, postgain);
+        // Apply makeup gain (calculated in setParameter)
+        audioSamples = vmul_f32(audioSamples, vdup_n_f32(makeupCoeff));
 
         // Blend Dry/Wet
-        _dryWetParameter = (v_dryWet + 100.0f) / 200.0f;
+        float dryWetNorm = (v_dryWet + 100.0f) / 200.0f;
+        dryWetParameter = vdup_n_f32(dryWetNorm);
+        inverseDryWet = vsub_f32(unity, dryWetParameter);
 
-        dryWetParameter = vdup_n_f32(_dryWetParameter);
-
-        inverseDryWet = vsub_f32(vdup_n_f32(1.0f), dryWetParameter);
-
-        dryMixingFactor = vmul_f32(inverseDryWet, vdup_n_f32(0.5f));
-
-        wetMixingFactor = vmul_f32(dryWetParameter, vdup_n_f32(0.5f));
-
-        drySamples = vmul_f32(vget_low_f32(inSamples), dryMixingFactor);
-
-        wetSamples = vmul_f32(audioSamples, wetMixingFactor);
-
+        drySamples = vmul_f32(vget_low_f32(inSamples), inverseDryWet);
+        wetSamples = vmul_f32(audioSamples, dryWetParameter);
         outputSamples = vadd_f32(drySamples, wetSamples);
 
+        // Update RMS display
         RMS.addValue(vabsq_f32(inSamples));
-        rms = RMS.getRMS(v_attack, v_release);
-        audioRMS = vget_low_f32(rms);
-        updateBitmapWithRMS(audioRMS,rmsBitmap);
 
+        // Store output
         vst1_f32(out_p, outputSamples);
     }
+
+    // Update RMS bitmap once per buffer (not every sample!)
+    rms = RMS.getRMS(v_attack, v_release);
+    audioRMS = vget_low_f32(rms);
+    updateBitmapWithRMS(audioRMS, rmsBitmap);
   }
 
   const float dBThresholds[16] = {
@@ -334,24 +312,21 @@ class MasterFX {
     std::pow(10.0f, dBThresholds[15] / 20.0f)  
 };
 
-inline uint8_t updateBitmapWithRMS(float32x2_t rms, uint8_t* bitmap) {
+inline void updateBitmapWithRMS(float32x2_t rms, uint8_t* bitmap) {
     uint32x2_t rowMask;
     uint32x2_t rowResult;
-    
-        for (int row = 0; row < 16; row+=2) {
-            rowMask = vcge_f32(rms, vdup_n_f32(linearAmplitudes[row]));
-            rowResult = vbsl_u32(rowMask, vdup_n_u32(1), vdup_n_u32(0) );
 
-            bitmap[row] =  vget_lane_u32(rowResult, 0);
-            bitmap[row + 1] = vget_lane_u32(rowResult, 1);
-        }
-    
-    
+    for (int row = 0; row < 16; row += 2) {
+        rowMask = vcge_f32(rms, vdup_n_f32(linearAmplitudes[row]));
+        rowResult = vbsl_u32(rowMask, vdup_n_u32(0xFFU), vdup_n_u32(0x00U));
+
+        bitmap[row] = vget_lane_u32(rowResult, 0) & 0xFF;
+        bitmap[row + 1] = vget_lane_u32(rowResult, 1) & 0xFF;
     }
+  }
 
 
   inline void setParameter(uint8_t index, int32_t value) {
-    (void)value;
     switch (index) {
         case c_parameterAttack:
             v_attack = value;
@@ -368,33 +343,53 @@ inline uint8_t updateBitmapWithRMS(float32x2_t rms, uint8_t* bitmap) {
         case c_parameterRatio:
             v_ratio = value;
             break;
-        
+
         case c_parameterKnee:
             v_knee = value;
             break;
- 
+
         case c_parameterDrive:
             v_drive = value;
+            // Pre-calculate linear drive value for clipping
+            driveLinear = powf(10.0f, -value / 20.0f);
             break;
 
         case c_parameterMakeup:
             v_makeup = value;
+            // Pre-calculate makeup gain coefficient
+            makeupCoeff = 1.0f + powf(10.0f, value / 20.0f);
             break;
+
         case c_parameterDryWet:
             v_dryWet = value;
             break;
+
         case c_parameterGain:
             v_gain = value;
+            // Pre-calculate pre-gain coefficient
+            pregainCoeff = 1.0f + powf(10.0f, value / 20.0f);
             break;
+
         case c_parameterSidechain:
             v_sidechain = value;
             break;
-         case c_parameterNoiseTHold:
+
+        case c_parameterNoiseTHold:
             v_noiseThreshold = value;
+            // Pre-calculate noise threshold in linear
+            noiseThresholdLinear = powf(10.0f, value / 20.0f);
             break;
+
         case c_parameterNoiseRelease:
-            v_noiseRelease = value; 
+            v_noiseRelease = value;
+            // Pre-calculate noise gate release coefficient
+            if (v_sampleRate > 0 && value > 0) {
+                noiseReleaseCoeff = expf(-1.0f / ((value / 1000.0f) * v_sampleRate));
+            } else {
+                noiseReleaseCoeff = 0.999f;
+            }
             break;
+
         case c_parameterNoiseGateOn:
             v_noiseGateOn = value;
             break;
@@ -489,16 +484,41 @@ inline uint8_t updateBitmapWithRMS(float32x2_t rms, uint8_t* bitmap) {
   /* Private Member Variables. */
   /*===========================================================================*/
 
-  std::atomic_uint_fast32_t flags_;
-  float32x2_t unity = vdup_n_f32(1.0f);
+  // Parameter values
+  uint32_t v_attack;
+  uint32_t v_release;
+  int8_t v_threshold;
+  uint8_t v_ratio;
+  uint16_t v_drive;
+  uint16_t v_makeup;
+  float v_sampleRate;
+  int8_t v_knee;
+  int8_t v_dryWet;
+  int8_t v_gain;
+  uint8_t v_sidechain;
+  int8_t v_noiseThreshold;
+  float v_noiseRelease;
+  uint8_t v_noiseGateOn;
+
+  // NEON constants and state
+  float32x2_t unity;
   float32x2_t envelope;
   float32x4_t rms;
-  float rmsSamples;
-  float32x2_t noiseSmoothing = vdup_n_f32(1.0f);
-  RMSCalculator RMS = RMSCalculator(rmsSamples, v_sampleRate);
-  uint8_t rmsBitmap[32]; 
-  
- 
+  float32x2_t noiseGain;
+
+  // DSP objects
+  EnvelopeDetector envDetector;
+  RMSCalculator RMS;
+
+  // Pre-calculated coefficients (to avoid expensive operations in audio loop)
+  float pregainCoeff;
+  float driveLinear;
+  float makeupCoeff;
+  float noiseThresholdLinear;
+  float noiseReleaseCoeff;
+
+  // Display bitmap
+  uint8_t rmsBitmap[32];
 
   /*===========================================================================*/
   /* Private Methods. */

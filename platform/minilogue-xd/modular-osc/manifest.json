@@ -1,0 +1,21 @@
+{
+    "header" :
+    {
+        "platform" : "minilogue-xd",
+        "module" : "osc",
+        "api" : "1.1-0",
+        "dev_id" : 0,
+        "prg_id" : 0,
+        "version" : "1.0-0",
+        "name" : "modular",
+        "num_param" : 6,
+        "params" : [
+            ["PhsTrns",    0, 100, "%"],
+            ["Linear", -100, 100, "%"],
+            ["LFO Rate",   0, 100, "%"],
+            ["LFO Dst",    0,   3, ""],
+            ["XMod",       0, 100, "%"],
+            ["Overlay",    0, 100, ""]
+          ]
+    }
+}

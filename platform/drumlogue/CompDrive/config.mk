@@ -2,7 +2,7 @@
 # Configuration for Makefile
 #
 
-PROJECT := dummy_master
+PROJECT := CompDrive
 PROJECT_TYPE := masterfx
 
 ##############################################################################

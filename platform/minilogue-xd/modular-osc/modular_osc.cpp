@@ -451,15 +451,8 @@ void OSC_PARAM(uint16_t index, uint16_t value)
       break;
 
     case k_user_osc_param_id4:
-      // LFO Destination (0-3) or 8-bit toggle (4)
-      // 0=Amp, 1=Freq, 2=Shape, 3=Linearity, 4=8bit Mode
-      if (value >= 4) {
-        s_state.use_8bit = 1;
-        s_state.lfo_dest = DEST_AMP; // LFO defaults to amp in 8-bit mode
-      } else {
-        s_state.use_8bit = 0;
-        s_state.lfo_dest = (value >= DEST_COUNT) ? DEST_AMP : value;
-      }
+      // LFO Destination (0-3)
+      s_state.lfo_dest = (value >= DEST_COUNT) ? DEST_AMP : value;
       break;
 
     case k_user_osc_param_id5:
@@ -470,6 +463,11 @@ void OSC_PARAM(uint16_t index, uint16_t value)
     case k_user_osc_param_id6:
       // Voice overlay interval in semitones (-24 to +24)
       s_state.overlay_interval = (int8_t)(value - 24);
+      break;
+
+    case 8: // 7th custom parameter (8-bit mode toggle) - after shape(6) and shiftshape(7)
+      // 8-bit mode: 0 = floating point, 1 = 8-bit sampling
+      s_state.use_8bit = (value > 0) ? 1 : 0;
       break;
 
     case k_user_osc_param_shape:

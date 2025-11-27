@@ -75,6 +75,11 @@ typedef struct {
   float crossmod_amt;    // Cross-modulation amount [0, 1]
   int8_t overlay_interval; // Voice overlay interval in semitones [-24, +24]
 
+  // 8-bit mode parameters
+  uint8_t use_8bit;      // 0 = floating point, 1 = 8-bit mode
+  float sample_hold;     // Sample hold value for downsampling
+  uint16_t sample_counter; // Counter for sample rate reduction
+
   // MIDI tracking
   uint8_t note;          // Current MIDI note
   uint8_t mod;           // Current MIDI fine tune
@@ -249,6 +254,10 @@ void OSC_INIT(uint32_t platform, uint32_t api)
   s_state.crossmod_amt = 0.0f;   // No cross-mod
   s_state.overlay_interval = 0;  // Unison (no interval)
 
+  s_state.use_8bit = 0;          // Floating point mode by default
+  s_state.sample_hold = 0.0f;
+  s_state.sample_counter = 0;
+
   s_state.note = 60;             // Middle C
   s_state.mod = 0;
 }
@@ -375,6 +384,22 @@ void OSC_CYCLE(const user_osc_param_t * const params, int32_t *yn, const uint32_
       output = (out1 + out2) * 0.5f;
     }
 
+    // 8-bit mode processing
+    if (s_state.use_8bit) {
+      // Sample rate reduction: downsample to ~8kHz (48kHz / 6 = 8kHz)
+      const uint16_t DOWNSAMPLE_FACTOR = 6;
+
+      if (s_state.sample_counter == 0) {
+        // Time to take a new sample
+        // Quantize to 8-bit (256 levels: -1.0 to 1.0 mapped to -128 to 127)
+        int8_t quantized = (int8_t)(output * 127.0f);
+        s_state.sample_hold = quantized / 127.0f; // Convert back to float
+      }
+
+      output = s_state.sample_hold; // Use held sample
+      s_state.sample_counter = (s_state.sample_counter + 1) % DOWNSAMPLE_FACTOR;
+    }
+
     // Soft clipping for safety
     output = osc_softclipf(0.05f, output);
 
@@ -426,8 +451,15 @@ void OSC_PARAM(uint16_t index, uint16_t value)
       break;
 
     case k_user_osc_param_id4:
-      // LFO Destination (0-3)
-      s_state.lfo_dest = (value >= DEST_COUNT) ? DEST_AMP : value;
+      // LFO Destination (0-3) or 8-bit toggle (4)
+      // 0=Amp, 1=Freq, 2=Shape, 3=Linearity, 4=8bit Mode
+      if (value >= 4) {
+        s_state.use_8bit = 1;
+        s_state.lfo_dest = DEST_AMP; // LFO defaults to amp in 8-bit mode
+      } else {
+        s_state.use_8bit = 0;
+        s_state.lfo_dest = (value >= DEST_COUNT) ? DEST_AMP : value;
+      }
       break;
 
     case k_user_osc_param_id5:

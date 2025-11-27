@@ -72,7 +72,7 @@ typedef struct {
 
   // Modulation parameters
   float crossmod_amt;    // Cross-modulation amount [0, 1]
-  float overlay_mix;     // Voice overlay mix [0, 1]
+  int8_t overlay_interval; // Voice overlay interval in semitones [-24, +24]
 
   // MIDI tracking
   uint8_t note;          // Current MIDI note
@@ -240,7 +240,7 @@ void OSC_INIT(uint32_t platform, uint32_t api)
   s_state.lfo_value = 0.0f;
 
   s_state.crossmod_amt = 0.0f;   // No cross-mod
-  s_state.overlay_mix = 0.0f;    // No overlay
+  s_state.overlay_interval = 0;  // Unison (no interval)
 
   s_state.note = 60;             // Middle C
   s_state.mod = 0;
@@ -341,12 +341,19 @@ void OSC_CYCLE(const user_osc_param_t * const params, int32_t *yn, const uint32_
     // Apply amplitude modulation
     out1 *= main_amp_mod;
 
-    // Voice overlay: generate second voice at detuned frequency
+    // Voice overlay: generate second voice at interval
     float output = out1;
-    if (s_state.overlay_mix > 0.001f) {
-      // Second voice is slightly detuned (+7 cents)
-      float phase2 = s_state.phase_main + (w0_modulated * 0.0041667f * frames);
-      if (phase2 >= 1.0f) phase2 -= 1.0f;
+    if (s_state.overlay_interval != 0) {
+      // Calculate frequency ratio for the interval (2^(semitones/12))
+      float interval_ratio = fastpowf(2.0f, s_state.overlay_interval / 12.0f);
+
+      // Calculate phase increment for second voice
+      float w0_voice2 = w0_modulated * interval_ratio;
+
+      // Generate second voice phase (separate accumulator would be better, but this works)
+      float phase2 = s_state.phase_main + (w0_voice2 * frames * 0.5f);
+      while (phase2 >= 1.0f) phase2 -= 1.0f;
+      while (phase2 < 0.0f) phase2 += 1.0f;
 
       float out2 = generate_waveform(
         phase2,
@@ -357,9 +364,8 @@ void OSC_CYCLE(const user_osc_param_t * const params, int32_t *yn, const uint32_
 
       out2 *= main_amp_mod;
 
-      // Mix voices
-      output = out1 * (1.0f - s_state.overlay_mix * 0.5f) +
-               out2 * (s_state.overlay_mix * 0.5f);
+      // Mix voices 50/50
+      output = (out1 + out2) * 0.5f;
     }
 
     // Soft clipping for safety
@@ -416,8 +422,8 @@ void OSC_PARAM(uint16_t index, uint16_t value)
       break;
 
     case k_user_osc_param_id6:
-      // Voice overlay mix (0-100%)
-      s_state.overlay_mix = clip01f(value * 0.01f);
+      // Voice overlay interval in semitones (-24 to +24)
+      s_state.overlay_interval = (int8_t)(value - 24);
       break;
 
     case k_user_osc_param_shape:

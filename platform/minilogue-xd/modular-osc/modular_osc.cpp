@@ -29,7 +29,8 @@
 
 // Waveform integration types
 enum WaveformType {
-  WAVE_TRIANGLE = 0,
+  WAVE_SQUARE = 0,
+  WAVE_TRIANGLE,
   WAVE_SINE,
   WAVE_RAMP_UP,
   WAVE_RAMP_DOWN,
@@ -156,7 +157,7 @@ static inline float generate_ramp_down(float phase, float linearity) {
 }
 
 // Morphable waveform generator
-// shape: 0.0 = triangle, 0.33 = sine, 0.66 = ramp up, 1.0 = ramp down
+// shape: 0.0 = square, 0.2 = triangle, 0.4 = sine, 0.6 = ramp up, 0.8 = ramp down, 1.0 = saw
 static inline float generate_waveform(float phase, float shape, float transition, float linearity) {
   // Morph between waveform types
   float morph_pos = shape * (WAVE_COUNT - 1);
@@ -173,6 +174,9 @@ static inline float generate_waveform(float phase, float shape, float transition
 
   // Generate waveform A
   switch (type_a) {
+    case WAVE_SQUARE:
+      output_a = osc_sqrf(phase);
+      break;
     case WAVE_TRIANGLE:
       output_a = generate_triangle(phase, transition, linearity);
       break;
@@ -193,6 +197,9 @@ static inline float generate_waveform(float phase, float shape, float transition
   // Generate waveform B (if morphing)
   if (mix > 0.001f) {
     switch (type_b) {
+      case WAVE_SQUARE:
+        output_b = osc_sqrf(phase);
+        break;
       case WAVE_TRIANGLE:
         output_b = generate_triangle(phase, transition, linearity);
         break;
@@ -230,8 +237,8 @@ void OSC_INIT(uint32_t platform, uint32_t api)
   s_state.w0_lfo = 0.01f / SAMPLE_RATE; // Default 0.01 Hz
 
   // Default parameters
-  s_state.shape_main = 0.0f;     // Triangle
-  s_state.shape_lfo = 0.0f;      // Triangle
+  s_state.shape_main = 0.0f;     // Square
+  s_state.shape_lfo = 0.0f;      // Square
   s_state.phase_trans = 0.5f;    // 50% transition point
   s_state.linearity = 0.0f;      // Linear
 

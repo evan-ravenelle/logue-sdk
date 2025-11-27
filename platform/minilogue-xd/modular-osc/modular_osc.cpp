@@ -23,9 +23,9 @@
 #define SAMPLE_RATE 48000.0f
 #define INV_SAMPLE_RATE (1.0f / SAMPLE_RATE)
 
-// LFO frequency range: 0.1 Hz to 1000 Hz (audio rate)
+// LFO frequency range: 0.1 Hz to 10000 Hz (audio rate)
 #define LFO_FREQ_MIN 0.1f
-#define LFO_FREQ_MAX 1000.0f
+#define LFO_FREQ_MAX 10000.0f
 
 // Waveform integration types
 enum WaveformType {
@@ -402,11 +402,18 @@ void OSC_PARAM(uint16_t index, uint16_t value)
       break;
 
     case k_user_osc_param_id3:
-      // LFO Rate (0-100%)
-      s_state.lfo_rate = clip01f(value * 0.01f);
+      // LFO Rate (0-10000 Hz, logarithmic scaling)
       {
-        // Map exponentially: 0.1 Hz to 1000 Hz
-        float freq_hz = LFO_FREQ_MIN * fastpowf(LFO_FREQ_MAX / LFO_FREQ_MIN, s_state.lfo_rate);
+        float freq_hz;
+        if (value < 1) {
+          freq_hz = 0.1f; // Minimum frequency
+        } else {
+          // Logarithmic mapping: 0.1 Hz to 10000 Hz
+          // value ranges from 0 to 10000
+          float normalized = value / 10000.0f; // 0.0 to 1.0
+          freq_hz = 0.1f * fastpowf(100000.0f, normalized); // 0.1 to 10000 Hz
+        }
+        s_state.lfo_rate = freq_hz / 10000.0f; // Store normalized for potential future use
         s_state.w0_lfo = freq_hz * INV_SAMPLE_RATE;
       }
       break;

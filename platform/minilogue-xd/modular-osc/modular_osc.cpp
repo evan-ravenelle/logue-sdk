@@ -424,8 +424,14 @@ void OSC_PARAM(uint16_t index, uint16_t value)
 {
   switch (index) {
     case k_user_osc_param_id1:
-      // Phase transition point (0-100%)
-      s_state.phase_trans = clip01f(value * 0.01f);
+      // Phase transition point (0-100) or 8-bit mode (101)
+      if (value >= 101) {
+        s_state.use_8bit = 1;
+        s_state.phase_trans = 0.5f; // Default to 50% when in 8-bit mode
+      } else {
+        s_state.use_8bit = 0;
+        s_state.phase_trans = clip01f(value * 0.01f);
+      }
       break;
 
     case k_user_osc_param_id2:
@@ -463,11 +469,6 @@ void OSC_PARAM(uint16_t index, uint16_t value)
     case k_user_osc_param_id6:
       // Voice overlay interval in semitones (-24 to +24)
       s_state.overlay_interval = (int8_t)(value - 24);
-      break;
-
-    case 8: // 7th custom parameter (8-bit mode toggle) - after shape(6) and shiftshape(7)
-      // 8-bit mode: 0 = floating point, 1 = 8-bit sampling
-      s_state.use_8bit = (value > 0) ? 1 : 0;
       break;
 
     case k_user_osc_param_shape:

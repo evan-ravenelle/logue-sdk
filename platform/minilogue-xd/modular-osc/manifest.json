@@ -8,15 +8,14 @@
         "prg_id" : 0,
         "version" : "1.0-0",
         "name" : "modular",
-        "num_param" : 7,
+        "num_param" : 6,
         "params" : [
-            ["PhsTrns",    0, 100, "%"],
+            ["PhsTrns",    0, 101, ""],
             ["Linear", -100, 100, "%"],
             ["LFO Hz ",   0, 10000, ""],
             ["LFO Dst",    0,   3, ""],
             ["XMod",       0, 100, "%"],
-            ["Intval",   -24,  24, ""],
-            ["8bit",       0,   1, ""]
+            ["Intval",   -24,  24, ""]
           ]
     }
 }

@@ -11,11 +11,14 @@
 *.obj
 *.elf
 
-# Temporary directories
-**/.dep/**
-**/build/**
+# Temporary files/directories
+**/.dep
+**/build
+**/sim
+.*.env_backup
+.profile
+.bash_history
 tools/gcc/gcc-arm-none-eabi-*
-tools/emscripten/emsdk
 
 # Doxygen documentation
 **/docs/html
@@ -50,6 +53,10 @@ tools/emscripten/emsdk
 *.prlgunit
 *.mnlgxdunit
 *.ntkdigunit
+*.drmlgunit
+*.nts1mkiiunit
+*.nts3unit
+*.mk2unit
 
 # Debug files
 *.dSYM/
@@ -59,3 +66,8 @@ tools/emscripten/emsdk
 /.idea/modules.xml
 /.idea/inspectionProfiles/profiles_settings.xml
 /.idea/vcs.xml
+# VS Code config
+.vscode/
+
+# Mac ds_store
+**/.DS_Store

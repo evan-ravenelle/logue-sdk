@@ -6,6 +6,15 @@
 
 The Docker-based build environment packages together all the tools required to build logue SDK units for any of the supported platforms, provides some convenience tools to simplify bulk project building and allows to build in consistent environment independent from the host operating system.
 
+### how to fix CLRF errors on Windows
+
+After you have cloned logue-sdk, make sure to change local git config core.autocrlf to input instead of true. 
+
+Inside logue-sdk directory, 
+```
+git config core.autocrlf input
+```
+
 ### Setup
 
  1. [Install Docker](https://docs.docker.com/get-docker/) (Note: Docker Desktop is not specifically required, [installing Docker Engine](https://docs.docker.com/engine/install/) is sufficient)
@@ -25,10 +34,22 @@ The Docker-based build environment packages together all the tools required to b
  [...]
  ```
 
+ Alternatively, grab this [container image](https://hub.docker.com/r/xiashj/logue-sdk) from Docker Hub.
+
+ ```
+ docker pull xiashj/logue-sdk
+ ```
+ 
+ or simply search "logue-sdk" inside Docker Desktop and press "Pull".
+
+
 #### Windows Notes
 
- On Windows (10/11) the [Windows Subsystem for Linux (WSL2)](https://learn.microsoft.com/en-us/windows/wsl/) must be installed.
+ On Windows (10/11) the [Windows Subsystem for Linux (WSL2)](https://learn.microsoft.com/en-us/windows/wsl/) must be installed, including a Linux distribution.
  This is a prerequisite for Docker, and to be able to make use of convenience bash scripts (detailed below) in powershell and command prompt.
+ When cloning the repository, make sure that the Git setting `core.autocrlf` is set to `input`, otherwise none of the setup scripts or build scripts will run.
+ When running the convenience bash scripts you must run `wsl` or `bash` in powershell and command prompt to get to a bash prompt, otherwise they will be launched in Git Bash, 
+ which doesn't have the TTY support required for `run_cmd.sh` and `run_interactive.sh`.
 
 ### Interactive Shell
 
@@ -128,10 +149,12 @@ The `env` command is used to initialize the build environment for a given target
 ```
  user@logue-sdk:~$ env -l
  Available build environments:
- - drumlogue
+ - nts-3_kaoss
  - minilogue-xd
+ - nts-1_mkii
  - prologue
  - nts-1
+ - drumlogue
 
  user@logue-sdk:~$ env drumlogue
  >> Initializing drumlogue development environment.
@@ -191,6 +214,8 @@ The `build` command can be used to build projects for any platform. Unless more 
       --minilogue-xd    select minilogue-xd unit projects
       --nutekt-digital  select nts-1 unit projects
       --nts-1           alias for --nutekt-digital
+      --nts-1_mkii      select nts-1 mkii unit projects
+      --nts-3           select nts-3 unit projects
       --prologue        select prologue unit projects
   -f, --force           force clean project before building
       --install-dir=DIR install built units to specified directory
@@ -229,6 +254,12 @@ The `build` command can be used to build projects for any platform. Unless more 
  - prologue/dummy-osc
  - prologue/dummy-revfx
  - prologue/waves
+ - nts-1_mkii/dummy-delfx
+ - nts-1_mkii/dummy-modfx
+ - nts-1_mkii/dummy-osc
+ - nts-1_mkii/dummy-revfx
+ - nts-1_mkii/waves
+ - nts-3_kaoss/dummy-genericfx
 ```
 
  * Building a specific project

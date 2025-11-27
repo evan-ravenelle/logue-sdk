@@ -6,6 +6,16 @@
 
  Dockerベースのビルド環境は, サポートされている各プラットフォーム用のlogue SDKユニットを構築するために必要なすべてのツールをパッケージ化し, 規模の大きいプロジェクトの構築を簡単にする便利なツールを提供します. このDockerベースの環境を利用することで, ホストOSから独立した一貫的な環境で構築することが可能です.
 
+### CLRF errorに遭遇した時の解決法
+
+logue-sdk をクローンした後は、ローカルのGit設定で core.autocrlf を true ではなく input に変更してください。
+
+logue-sdkのフォルダで、
+
+```
+git config core.autocrlf input
+```
+
 ### セットアップ
 
  1. [Dockerをインストール](https://docs.docker.com/get-docker/) します (Note: Docker Desktopは特に必要なく, [installing Docker Engine](https://docs.docker.com/engine/install/) で十分です).
@@ -24,6 +34,13 @@
  
  [...]
  ```
+ あるいは、Docker Hubからこの[コンテナイメージ](https://hub.docker.com/r/xiashj/logue-sdk)をダウンロードします。
+
+ ```
+ docker pull xiashj/logue-sdk
+ ```
+ Docker Desktopから「logue-sdk」を検索して「Pull」を押してもダウンロードできます。
+
 
 #### Windowsでの注意点
 
@@ -125,10 +142,12 @@
 ```
  user@logue-sdk:~$ env -l
  Available build environments:
- - drumlogue
+ - nts-3_kaoss
  - minilogue-xd
+ - nts-1_mkii
  - prologue
  - nts-1
+ - drumlogue
 
  user@logue-sdk:~$ env drumlogue
  >> Initializing drumlogue development environment.
@@ -188,6 +207,8 @@
       --minilogue-xd    select minilogue-xd unit projects
       --nutekt-digital  select nts-1 unit projects
       --nts-1           alias for --nutekt-digital
+      --nts-1_mkii      select nts-1 mkii unit projects
+      --nts-3           select nts-3 unit projects
       --prologue        select prologue unit projects
   -f, --force           force clean project before building
       --install-dir=DIR install built units to specified directory
@@ -226,6 +247,12 @@
  - prologue/dummy-osc
  - prologue/dummy-revfx
  - prologue/waves
+ - nts-1_mkii/dummy-delfx
+ - nts-1_mkii/dummy-modfx
+ - nts-1_mkii/dummy-osc
+ - nts-1_mkii/dummy-revfx
+ - nts-1_mkii/waves
+ - nts-3_kaoss/dummy-genericfx
 ```
 
  * 特定のプロジェクトのビルド（`drumlogue/dummy-synth` をビルドする例）

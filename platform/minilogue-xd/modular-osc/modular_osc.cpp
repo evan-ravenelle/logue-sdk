@@ -23,13 +23,14 @@
 #define SAMPLE_RATE 48000.0f
 #define INV_SAMPLE_RATE (1.0f / SAMPLE_RATE)
 
-// LFO frequency range: 0.1 Hz to 1000 Hz (audio rate)
+// LFO frequency range: 0.1 Hz to 10000 Hz (audio rate)
 #define LFO_FREQ_MIN 0.1f
-#define LFO_FREQ_MAX 1000.0f
+#define LFO_FREQ_MAX 10000.0f
 
 // Waveform integration types
 enum WaveformType {
-  WAVE_TRIANGLE = 0,
+  WAVE_SQUARE = 0,
+  WAVE_TRIANGLE,
   WAVE_SINE,
   WAVE_RAMP_UP,
   WAVE_RAMP_DOWN,
@@ -72,7 +73,12 @@ typedef struct {
 
   // Modulation parameters
   float crossmod_amt;    // Cross-modulation amount [0, 1]
-  float overlay_mix;     // Voice overlay mix [0, 1]
+  int8_t overlay_interval; // Voice overlay interval in semitones [-24, +24]
+
+  // 8-bit mode parameters
+  uint8_t use_8bit;      // 0 = floating point, 1 = 8-bit mode
+  float sample_hold;     // Sample hold value for downsampling
+  uint16_t sample_counter; // Counter for sample rate reduction
 
   // MIDI tracking
   uint8_t note;          // Current MIDI note
@@ -156,7 +162,7 @@ static inline float generate_ramp_down(float phase, float linearity) {
 }
 
 // Morphable waveform generator
-// shape: 0.0 = triangle, 0.33 = sine, 0.66 = ramp up, 1.0 = ramp down
+// shape: 0.0 = square, 0.2 = triangle, 0.4 = sine, 0.6 = ramp up, 0.8 = ramp down, 1.0 = saw
 static inline float generate_waveform(float phase, float shape, float transition, float linearity) {
   // Morph between waveform types
   float morph_pos = shape * (WAVE_COUNT - 1);
@@ -173,6 +179,9 @@ static inline float generate_waveform(float phase, float shape, float transition
 
   // Generate waveform A
   switch (type_a) {
+    case WAVE_SQUARE:
+      output_a = osc_sqrf(phase);
+      break;
     case WAVE_TRIANGLE:
       output_a = generate_triangle(phase, transition, linearity);
       break;
@@ -193,6 +202,9 @@ static inline float generate_waveform(float phase, float shape, float transition
   // Generate waveform B (if morphing)
   if (mix > 0.001f) {
     switch (type_b) {
+      case WAVE_SQUARE:
+        output_b = osc_sqrf(phase);
+        break;
       case WAVE_TRIANGLE:
         output_b = generate_triangle(phase, transition, linearity);
         break;
@@ -230,8 +242,8 @@ void OSC_INIT(uint32_t platform, uint32_t api)
   s_state.w0_lfo = 0.01f / SAMPLE_RATE; // Default 0.01 Hz
 
   // Default parameters
-  s_state.shape_main = 0.0f;     // Triangle
-  s_state.shape_lfo = 0.0f;      // Triangle
+  s_state.shape_main = 0.0f;     // Square
+  s_state.shape_lfo = 0.0f;      // Square
   s_state.phase_trans = 0.5f;    // 50% transition point
   s_state.linearity = 0.0f;      // Linear
 
@@ -240,7 +252,11 @@ void OSC_INIT(uint32_t platform, uint32_t api)
   s_state.lfo_value = 0.0f;
 
   s_state.crossmod_amt = 0.0f;   // No cross-mod
-  s_state.overlay_mix = 0.0f;    // No overlay
+  s_state.overlay_interval = 0;  // Unison (no interval)
+
+  s_state.use_8bit = 0;          // Floating point mode by default
+  s_state.sample_hold = 0.0f;
+  s_state.sample_counter = 0;
 
   s_state.note = 60;             // Middle C
   s_state.mod = 0;
@@ -341,12 +357,19 @@ void OSC_CYCLE(const user_osc_param_t * const params, int32_t *yn, const uint32_
     // Apply amplitude modulation
     out1 *= main_amp_mod;
 
-    // Voice overlay: generate second voice at detuned frequency
+    // Voice overlay: generate second voice at interval
     float output = out1;
-    if (s_state.overlay_mix > 0.001f) {
-      // Second voice is slightly detuned (+7 cents)
-      float phase2 = s_state.phase_main + (w0_modulated * 0.0041667f * frames);
-      if (phase2 >= 1.0f) phase2 -= 1.0f;
+    if (s_state.overlay_interval != 0) {
+      // Calculate frequency ratio for the interval (2^(semitones/12))
+      float interval_ratio = fastpowf(2.0f, s_state.overlay_interval / 12.0f);
+
+      // Calculate phase increment for second voice
+      float w0_voice2 = w0_modulated * interval_ratio;
+
+      // Generate second voice phase (separate accumulator would be better, but this works)
+      float phase2 = s_state.phase_main + (w0_voice2 * frames * 0.5f);
+      while (phase2 >= 1.0f) phase2 -= 1.0f;
+      while (phase2 < 0.0f) phase2 += 1.0f;
 
       float out2 = generate_waveform(
         phase2,
@@ -357,9 +380,24 @@ void OSC_CYCLE(const user_osc_param_t * const params, int32_t *yn, const uint32_
 
       out2 *= main_amp_mod;
 
-      // Mix voices
-      output = out1 * (1.0f - s_state.overlay_mix * 0.5f) +
-               out2 * (s_state.overlay_mix * 0.5f);
+      // Mix voices 50/50
+      output = (out1 + out2) * 0.5f;
+    }
+
+    // 8-bit mode processing
+    if (s_state.use_8bit) {
+      // Sample rate reduction: downsample to ~8kHz (48kHz / 6 = 8kHz)
+      const uint16_t DOWNSAMPLE_FACTOR = 6;
+
+      if (s_state.sample_counter == 0) {
+        // Time to take a new sample
+        // Quantize to 8-bit (256 levels: -1.0 to 1.0 mapped to -128 to 127)
+        int8_t quantized = (int8_t)(output * 127.0f);
+        s_state.sample_hold = quantized / 127.0f; // Convert back to float
+      }
+
+      output = s_state.sample_hold; // Use held sample
+      s_state.sample_counter = (s_state.sample_counter + 1) % DOWNSAMPLE_FACTOR;
     }
 
     // Soft clipping for safety
@@ -396,11 +434,18 @@ void OSC_PARAM(uint16_t index, uint16_t value)
       break;
 
     case k_user_osc_param_id3:
-      // LFO Rate (0-100%)
-      s_state.lfo_rate = clip01f(value * 0.01f);
+      // LFO Rate (0-10000 Hz, logarithmic scaling)
       {
-        // Map exponentially: 0.1 Hz to 1000 Hz
-        float freq_hz = LFO_FREQ_MIN * fastpowf(LFO_FREQ_MAX / LFO_FREQ_MIN, s_state.lfo_rate);
+        float freq_hz;
+        if (value < 1) {
+          freq_hz = 0.1f; // Minimum frequency
+        } else {
+          // Logarithmic mapping: 0.1 Hz to 10000 Hz
+          // value ranges from 0 to 10000
+          float normalized = value / 10000.0f; // 0.0 to 1.0
+          freq_hz = 0.1f * fastpowf(100000.0f, normalized); // 0.1 to 10000 Hz
+        }
+        s_state.lfo_rate = freq_hz / 10000.0f; // Store normalized for potential future use
         s_state.w0_lfo = freq_hz * INV_SAMPLE_RATE;
       }
       break;
@@ -416,8 +461,13 @@ void OSC_PARAM(uint16_t index, uint16_t value)
       break;
 
     case k_user_osc_param_id6:
-      // Voice overlay mix (0-100%)
-      s_state.overlay_mix = clip01f(value * 0.01f);
+      // Voice overlay interval in semitones (-24 to +24)
+      s_state.overlay_interval = (int8_t)(value - 24);
+      break;
+
+    case 8: // 7th custom parameter (8-bit mode toggle) - after shape(6) and shiftshape(7)
+      // 8-bit mode: 0 = floating point, 1 = 8-bit sampling
+      s_state.use_8bit = (value > 0) ? 1 : 0;
       break;
 
     case k_user_osc_param_shape:

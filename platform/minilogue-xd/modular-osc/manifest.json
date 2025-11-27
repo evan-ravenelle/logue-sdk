@@ -10,12 +10,12 @@
         "name" : "modular",
         "num_param" : 6,
         "params" : [
-            ["PhsTrns",    0, 101, ""],
+            ["PhsTrns",    0, 101,  ""],
             ["Linear", -100, 100, "%"],
-            ["LFO Hz ",   0, 10000, ""],
-            ["LFO Dst",    0,   3, ""],
+            ["LFO Hz",     0, 100, "%"],
+            ["LFO Dst",    0,   3,  ""],
             ["XMod",       0, 100, "%"],
-            ["Intval",   -24,  24, ""]
+            ["Intval",   -24,  24,  ""]
           ]
     }
 }

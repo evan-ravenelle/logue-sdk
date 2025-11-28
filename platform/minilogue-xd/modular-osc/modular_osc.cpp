@@ -3,12 +3,12 @@
  *
  * Features:
  * - Dual phase accumulator architecture
- * - Selectable waveform integration types (triangle, sine, ramp, saw)
+ * - Selectable waveform integration types (square, triangle, sine, ramp, saw)
  * - Adjustable phase transition point and slope linearity
  * - Internal LFO with variable rate
  * - Modulation routing to Amp, Freq, Shape, or Linearity
  * - Cross-modulation between oscillators
- * - Voice overlay for 2-voice simulation
+ * - 8-bit mode with authentic downsampling and quantization
  *
  * (c) 2025
  */
@@ -73,7 +73,6 @@ typedef struct {
 
   // Modulation parameters
   float crossmod_amt;    // Cross-modulation amount [0, 1]
-  int8_t overlay_interval; // Voice overlay interval in semitones [-24, +24]
 
   // 8-bit mode parameters
   uint8_t use_8bit;      // 0 = floating point, 1 = 8-bit mode
@@ -252,7 +251,6 @@ void OSC_INIT(uint32_t platform, uint32_t api)
   s_state.lfo_value = 0.0f;
 
   s_state.crossmod_amt = 0.0f;   // No cross-mod
-  s_state.overlay_interval = 0;  // Unison (no interval)
 
   s_state.use_8bit = 0;          // Floating point mode by default
   s_state.sample_hold = 0.0f;
@@ -346,8 +344,8 @@ void OSC_CYCLE(const user_osc_param_t * const params, int32_t *yn, const uint32_
       s_state.phase_main += 1.0f;
     }
 
-    // Generate main oscillator waveform (voice 1)
-    float out1 = generate_waveform(
+    // Generate main oscillator waveform
+    float output = generate_waveform(
       s_state.phase_main,
       main_shape,
       s_state.phase_trans,
@@ -355,34 +353,7 @@ void OSC_CYCLE(const user_osc_param_t * const params, int32_t *yn, const uint32_
     );
 
     // Apply amplitude modulation
-    out1 *= main_amp_mod;
-
-    // Voice overlay: generate second voice at interval
-    float output = out1;
-    if (s_state.overlay_interval != 0) {
-      // Calculate frequency ratio for the interval (2^(semitones/12))
-      float interval_ratio = fastpowf(2.0f, s_state.overlay_interval / 12.0f);
-
-      // Calculate phase increment for second voice
-      float w0_voice2 = w0_modulated * interval_ratio;
-
-      // Generate second voice phase (separate accumulator would be better, but this works)
-      float phase2 = s_state.phase_main + (w0_voice2 * frames * 0.5f);
-      while (phase2 >= 1.0f) phase2 -= 1.0f;
-      while (phase2 < 0.0f) phase2 += 1.0f;
-
-      float out2 = generate_waveform(
-        phase2,
-        main_shape,
-        s_state.phase_trans,
-        main_linearity
-      );
-
-      out2 *= main_amp_mod;
-
-      // Mix voices 50/50
-      output = (out1 + out2) * 0.5f;
-    }
+    output *= main_amp_mod;
 
     // 8-bit mode processing
     if (s_state.use_8bit) {
@@ -444,14 +415,8 @@ void OSC_PARAM(uint16_t index, uint16_t value)
       break;
 
     case k_user_osc_param_id4:
-      // LFO Destination (0-3) or 8-bit mode toggle (4)
-      if (value >= 4) {
-        s_state.use_8bit = 1;
-        s_state.lfo_dest = DEST_AMP;  // Default LFO to amp in 8-bit mode
-      } else {
-        s_state.use_8bit = 0;
-        s_state.lfo_dest = (value >= DEST_COUNT) ? DEST_AMP : value;
-      }
+      // LFO Destination (0-3: Amp, Freq, Shape, Linearity)
+      s_state.lfo_dest = (value >= DEST_COUNT) ? DEST_AMP : value;
       break;
 
     case k_user_osc_param_id5:
@@ -460,8 +425,8 @@ void OSC_PARAM(uint16_t index, uint16_t value)
       break;
 
     case k_user_osc_param_id6:
-      // Voice overlay interval in semitones (-24 to +24)
-      s_state.overlay_interval = (int8_t)(value - 24);
+      // 8-bit mode toggle (0 = floating point, 1 = 8-bit)
+      s_state.use_8bit = (value > 0) ? 1 : 0;
       break;
 
     case k_user_osc_param_shape:

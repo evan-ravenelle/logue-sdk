@@ -424,14 +424,8 @@ void OSC_PARAM(uint16_t index, uint16_t value)
 {
   switch (index) {
     case k_user_osc_param_id1:
-      // Phase transition point (0-100) or 8-bit mode (101)
-      if (value >= 101) {
-        s_state.use_8bit = 1;
-        s_state.phase_trans = 0.5f; // Default to 50% when in 8-bit mode
-      } else {
-        s_state.use_8bit = 0;
-        s_state.phase_trans = clip01f(value * 0.01f);
-      }
+      // Phase transition point (0-100%)
+      s_state.phase_trans = clip01f(value * 0.01f);
       break;
 
     case k_user_osc_param_id2:
@@ -450,8 +444,14 @@ void OSC_PARAM(uint16_t index, uint16_t value)
       break;
 
     case k_user_osc_param_id4:
-      // LFO Destination (0-3)
-      s_state.lfo_dest = (value >= DEST_COUNT) ? DEST_AMP : value;
+      // LFO Destination (0-3) or 8-bit mode toggle (4)
+      if (value >= 4) {
+        s_state.use_8bit = 1;
+        s_state.lfo_dest = DEST_AMP;  // Default LFO to amp in 8-bit mode
+      } else {
+        s_state.use_8bit = 0;
+        s_state.lfo_dest = (value >= DEST_COUNT) ? DEST_AMP : value;
+      }
       break;
 
     case k_user_osc_param_id5:

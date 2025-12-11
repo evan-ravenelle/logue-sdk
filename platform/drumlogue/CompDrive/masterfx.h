@@ -260,7 +260,7 @@ class MasterFX {
 
             // Smooth EMA: use attack coeff when opening, release when closing
             float32x2_t gainDelta = vsub_f32(gateGainTarget, noiseGain);
-            float32x2_t gateRising = vcgt_f32(gainDelta, zeroVec);
+            uint32x2_t gateRising = vcgt_f32(gainDelta, zeroVec);
             float32x2_t gateCoeffToUse = vbsl_f32(gateRising,
                                                   noiseAttackCoeffVec,
                                                   noiseReleaseCoeffVec);

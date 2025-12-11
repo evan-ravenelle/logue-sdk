@@ -78,6 +78,7 @@ class MasterFX {
     thresholdLinear(1.0f),
     ratioLinear(1.0f),
     kneeWidthLinear(1.0f),
+    kneeSlopeScalar(0.0f),
     dryWetCoeff(0.5f),
     attackCoeff(0.99f),
     releaseCoeff(0.99f)
@@ -135,16 +136,13 @@ class MasterFX {
   /*===========================================================================*/
 
   fast_inline void Process(const float * in, float * out, size_t frames) {
-    // Declare all variables outside the loop
+    // Declare loop variables
     float32x4_t inSamples;
     float32x2_t audioSamples;
     float32x2_t sidechainSamples;
-    float32x2_t threshold;
-    float32x2_t ratio;
     float32x2_t delta;
     uint32x2_t theta;
     float32x2_t compressionGain;
-    float32x2_t kneeWidth;
     float32x2_t lowerThreshold;
     float32x2_t upperThreshold;
     uint32x2_t belowLower;
@@ -153,13 +151,10 @@ class MasterFX {
     float32x2_t absAudioSamples;
     uint32x2_t gateCondition;
     float32x2_t gateGainTarget;
-    float32x2_t dryWetParameter;
-    float32x2_t inverseDryWet;
     float32x2_t drySamples;
     float32x2_t wetSamples;
     float32x2_t outputSamples;
     float32x2_t audioRMS;
-    float32x2_t clampThreshold;
     uint32x2_t positiveClamp;
     float32x2_t clampedPositive;
     float32x2_t clampedNegative;
@@ -167,12 +162,14 @@ class MasterFX {
     uint32x2_t envRising;
     float32x2_t envCoeff;
     float32x2_t envDelta;
+    uint32x2_t sidechainMask;
 
     const float * __restrict in_p = in;
     float * __restrict out_p = out;
     const float * out_e = out_p + (frames << 1);  // assuming stereo output
 
-    // Pre-load constants
+    // Pre-load all SIMD constants (avoids repeated vdup_n_f32 in loop)
+    const float32x2_t zeroVec = vdup_n_f32(0.0f);
     const float32x2_t attackCoeffVec = vdup_n_f32(attackCoeff);
     const float32x2_t releaseCoeffVec = vdup_n_f32(releaseCoeff);
     const float32x2_t thresholdVec = vdup_n_f32(thresholdLinear);
@@ -182,6 +179,13 @@ class MasterFX {
     const float32x2_t dryWetVec = vdup_n_f32(dryWetCoeff);
     const float32x2_t inverseDryWetVec = vsub_f32(unity, dryWetVec);
     const float32x2_t denormalOffset = vdup_n_f32(DENORMAL_OFFSET);
+    const float32x2_t kneeWidthVec = vdup_n_f32(kneeWidthLinear);
+    const float32x2_t quarterVec = vdup_n_f32(0.25f);
+    const float32x2_t kneeSlopeVec = vdup_n_f32(kneeSlopeScalar);
+    const float32x2_t driveThresholdVec = vdup_n_f32(driveLinear);
+    const float32x2_t noiseThresholdVec = vdup_n_f32(noiseThresholdLinear);
+    const float32x2_t noiseAttackCoeffVec = vdup_n_f32(noiseAttackCoeff);
+    const float32x2_t noiseReleaseCoeffVec = vdup_n_f32(noiseReleaseCoeff);
 
     for (; out_p != out_e; in_p += 4, out_p += 2) {
         // Load a vector of four input samples (main L/R, sidechain L/R)
@@ -191,15 +195,14 @@ class MasterFX {
         audioSamples = vget_low_f32(inSamples);
         sidechainSamples = vget_high_f32(inSamples);
 
-        // Apply pre-gain (using pre-calculated coefficient)
+        // Apply pre-gain
         audioSamples = vmul_f32(audioSamples, pregainVec);
 
-        // Update envelope follower with pre-calculated coefficients
-        if (v_sidechain == 1) {
-            envInput = vabs_f32(sidechainSamples);
-        } else {
-            envInput = vabs_f32(audioSamples);
-        }
+        // Sidechain selection using SIMD (avoids branch)
+        sidechainMask = vceq_u32(vdup_n_u32(v_sidechain), vdup_n_u32(1));
+        float32x2_t absAudio = vabs_f32(audioSamples);
+        float32x2_t absSidechain = vabs_f32(sidechainSamples);
+        envInput = vbsl_f32(sidechainMask, absSidechain, absAudio);
 
         // Smooth envelope with attack/release
         envRising = vcgt_f32(envInput, envelope);
@@ -207,54 +210,42 @@ class MasterFX {
         envDelta = vsub_f32(envInput, envelope);
         envelope = vadd_f32(envelope, vmul_f32(envDelta, vsub_f32(unity, envCoeff)));
 
-        // Add denormal prevention
+        // Denormal prevention
         envelope = vadd_f32(envelope, denormalOffset);
 
-        // Compression using pre-calculated threshold and ratio
-        threshold = thresholdVec;
-        ratio = ratioVec;
-
-        // Calculate how far we are from threshold
-        delta = vsub_f32(envelope, threshold);
-        theta = vcgt_f32(delta, vdup_n_f32(0.0f)); // true means above threshold
+        // Compression: calculate distance from threshold
+        delta = vsub_f32(envelope, thresholdVec);
+        theta = vcgt_f32(delta, zeroVec);
 
         // Soft knee compression
         if (v_knee != 0) {
-            kneeWidth = vdup_n_f32(kneeWidthLinear);
-            float32x2_t quarter = vdup_n_f32(0.25f);
-            lowerThreshold = vsub_f32(threshold, vmul_f32(kneeWidth, quarter));
-            upperThreshold = vadd_f32(threshold, vmul_f32(kneeWidth, quarter));
+            lowerThreshold = vsub_f32(thresholdVec, vmul_f32(kneeWidthVec, quarterVec));
+            upperThreshold = vadd_f32(thresholdVec, vmul_f32(kneeWidthVec, quarterVec));
 
             belowLower = vclt_f32(envelope, lowerThreshold);
             aboveUpper = vcgt_f32(envelope, upperThreshold);
 
-            // Calculate soft knee slope
-            float kneeWidthDb = v_knee / 2.0f;
-            float slopeScalar = (1.0f - ratioLinear) / (kneeWidthDb > 0 ? kneeWidthDb : 1);
-
-            // Knee gain calculation: simplified approach
-            float32x2_t excessDb = vmul_f32(delta, vdup_n_f32(slopeScalar));
-            kneeGain = vsub_f32(unity, excessDb);
+            // Knee gain using pre-calculated slope
+            kneeGain = vsub_f32(unity, vmul_f32(delta, kneeSlopeVec));
 
             // Select appropriate gain: unity below knee, kneeGain in knee, ratio above
             compressionGain = vbsl_f32(belowLower, unity, kneeGain);
-            compressionGain = vbsl_f32(aboveUpper, ratio, compressionGain);
+            compressionGain = vbsl_f32(aboveUpper, ratioVec, compressionGain);
         } else {
             // Hard knee: apply ratio above threshold, unity below
-            compressionGain = vbsl_f32(theta, ratio, unity);
+            compressionGain = vbsl_f32(theta, ratioVec, unity);
         }
 
         audioSamples = vmul_f32(audioSamples, compressionGain);
 
-        // Soft clipping / drive (using pre-calculated threshold)
+        // Soft clipping / drive
         if (v_drive > 0) {
-            clampThreshold = vdup_n_f32(driveLinear);
-            positiveClamp = vcge_f32(audioSamples, vdup_n_f32(0.0f));
+            positiveClamp = vcge_f32(audioSamples, zeroVec);
 
             // Positive samples: clamp to +driveLinear
-            clampedPositive = vmin_f32(audioSamples, clampThreshold);
+            clampedPositive = vmin_f32(audioSamples, driveThresholdVec);
             // Negative samples: clamp to -driveLinear
-            clampedNegative = vmax_f32(audioSamples, vneg_f32(clampThreshold));
+            clampedNegative = vmax_f32(audioSamples, vneg_f32(driveThresholdVec));
 
             audioSamples = vbsl_f32(positiveClamp, clampedPositive, clampedNegative);
         }
@@ -262,17 +253,17 @@ class MasterFX {
         // Smooth Noise Gate with EMA (prevents clicks and CPU halt from denormals)
         if (v_noiseGateOn) {
             absAudioSamples = vabs_f32(audioSamples);
-            gateCondition = vclt_f32(absAudioSamples, vdup_n_f32(noiseThresholdLinear));
+            gateCondition = vclt_f32(absAudioSamples, noiseThresholdVec);
 
             // Target: below threshold = 0.0, above = 1.0
-            gateGainTarget = vbsl_f32(gateCondition, vdup_n_f32(0.0f), unity);
+            gateGainTarget = vbsl_f32(gateCondition, zeroVec, unity);
 
             // Smooth EMA: use attack coeff when opening, release when closing
             float32x2_t gainDelta = vsub_f32(gateGainTarget, noiseGain);
-            float32x2_t gateRising = vcgt_f32(gainDelta, vdup_n_f32(0.0f));
+            float32x2_t gateRising = vcgt_f32(gainDelta, zeroVec);
             float32x2_t gateCoeffToUse = vbsl_f32(gateRising,
-                                                  vdup_n_f32(noiseAttackCoeff),
-                                                  vdup_n_f32(noiseReleaseCoeff));
+                                                  noiseAttackCoeffVec,
+                                                  noiseReleaseCoeffVec);
 
             // Apply smooth EMA
             noiseGain = vadd_f32(noiseGain, vmul_f32(gainDelta, vsub_f32(unity, gateCoeffToUse)));
@@ -283,10 +274,10 @@ class MasterFX {
             audioSamples = vmul_f32(audioSamples, noiseGain);
         }
 
-        // Apply makeup gain (using pre-calculated coefficient)
+        // Apply makeup gain
         audioSamples = vmul_f32(audioSamples, makeupVec);
 
-        // Blend Dry/Wet (using pre-calculated coefficients)
+        // Blend Dry/Wet
         drySamples = vmul_f32(vget_low_f32(inSamples), inverseDryWetVec);
         wetSamples = vmul_f32(audioSamples, dryWetVec);
         outputSamples = vadd_f32(drySamples, wetSamples);
@@ -385,6 +376,11 @@ inline void updateBitmapWithRMS(float32x2_t rms, uint8_t* bitmap) {
             v_ratio = value;
             // Pre-calculate ratio in linear domain
             ratioLinear = 1.0f / (value > 0 ? value : 1.0f);
+            // Update knee slope (depends on ratio)
+            if (v_knee != 0) {
+                float kneeWidthDb = v_knee / 2.0f;
+                kneeSlopeScalar = (1.0f - ratioLinear) / (kneeWidthDb > 0 ? kneeWidthDb : 1.0f);
+            }
             break;
 
         case c_parameterKnee:
@@ -392,8 +388,12 @@ inline void updateBitmapWithRMS(float32x2_t rms, uint8_t* bitmap) {
             // Pre-calculate knee width in linear domain
             if (value != 0) {
                 kneeWidthLinear = powf(10.0f, value / 20.0f);
+                // Pre-calculate knee slope
+                float kneeWidthDb = value / 2.0f;
+                kneeSlopeScalar = (1.0f - ratioLinear) / (kneeWidthDb > 0 ? kneeWidthDb : 1.0f);
             } else {
                 kneeWidthLinear = 0.0f;
+                kneeSlopeScalar = 0.0f;
             }
             break;
 
@@ -575,6 +575,7 @@ inline void updateBitmapWithRMS(float32x2_t rms, uint8_t* bitmap) {
   float thresholdLinear;
   float ratioLinear;
   float kneeWidthLinear;
+  float kneeSlopeScalar;  // Pre-calculated knee slope for soft-knee compression
   float dryWetCoeff;
 
   // Attack/release coefficients for envelope detector

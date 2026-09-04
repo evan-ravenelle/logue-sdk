@@ -71,3 +71,11 @@ tools/gcc/gcc-arm-none-eabi-*
 
 # Mac ds_store
 **/.DS_Store
+
+# .NET build output (host test bench)
+**/bin/
+**/obj/
+
+# Vendored Korg logue-cli download (has its own EULA; fetch with
+# tools/logue-cli/get_logue_cli_*.sh)
+tools/logue-cli/logue-cli-*/

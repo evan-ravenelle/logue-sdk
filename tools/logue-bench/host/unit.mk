@@ -8,7 +8,7 @@
 # CMSIS shim, both host-only.
 
 HOST_DIR      ?= $(CURDIR)
-PLATFORM_ROOT ?= $(HOST_DIR)/../../../..
+PLATFORM_ROOT ?= $(HOST_DIR)/../../../platform
 OUT_DIR       ?= $(HOST_DIR)/build/units
 
 ifndef UNIT_DIR

@@ -5,7 +5,7 @@
 # Each is a separate translation unit compiled against its own SDK headers,
 # and they meet only at the cdh_vtable boundary in cdhost.h.
 
-PLATFORM_ROOT := ../../../..
+PLATFORM_ROOT := ../../../platform
 DL_INC        := $(PLATFORM_ROOT)/drumlogue/common
 N3_INC        := $(PLATFORM_ROOT)/nts-3_kaoss/common
 

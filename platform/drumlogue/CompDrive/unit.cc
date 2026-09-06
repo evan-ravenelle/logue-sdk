@@ -84,3 +84,26 @@ __unit_callback uint8_t unit_get_preset_index() {
 __unit_callback const char * unit_get_preset_name(uint8_t idx) {
   return MasterFX::getPresetName(idx);
 }
+
+#ifdef CD_HOST_DIAG
+// Optional diagnostics for the host bench. Feature-detected by dlsym, absent
+// from the device build entirely, and never part of the unit API.
+//
+// extern "C" is required: unlike the real entry points these are not declared
+// in unit.h, so without it they get C++ linkage and dlsym cannot find them.
+extern "C" {
+
+__unit_callback int32_t unit_get_diag_count() { return 1; }
+
+__unit_callback const char * unit_get_diag(int32_t idx, float * value) {
+  switch (idx) {
+    case 0:
+      if (value) *value = s_master_instance.getDriveSaturation();
+      return "Drive clip";
+    default:
+      return nullptr;
+  }
+}
+
+}  // extern "C"
+#endif

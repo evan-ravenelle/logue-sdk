@@ -1,0 +1,65 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:CompDriveBench"
+        x:Class="CompDriveBench.MainWindow"
+        Title="logue bench" Width="1180" Height="780">
+
+  <Grid ColumnDefinitions="300,*" Margin="12">
+
+    <StackPanel Grid.Column="0" Spacing="8" Margin="0,0,12,0">
+      <TextBlock Text="LOAD UNIT" Foreground="#9aa0a6" FontSize="11"/>
+      <ComboBox x:Name="PlatformBox" HorizontalAlignment="Stretch"/>
+      <Button x:Name="OpenBtn" Content="Open unit project…" HorizontalAlignment="Stretch"/>
+      <Button x:Name="OpenDylibBtn" Content="…or a prebuilt host dylib"
+              HorizontalAlignment="Stretch" FontSize="11"/>
+      <Button x:Name="CloseBtn" Content="Close current tab" HorizontalAlignment="Stretch"/>
+      <TextBlock x:Name="StatusLabel" Text="" Foreground="#9aa0a6" TextWrapping="Wrap"/>
+
+      <TextBlock Text="AUDIO" Foreground="#9aa0a6" FontSize="11" Margin="0,12,0,0"/>
+      <Button x:Name="LoadBtn" Content="Load WAV…" HorizontalAlignment="Stretch"/>
+      <Button x:Name="LoadScBtn" Content="Load sidechain WAV…" HorizontalAlignment="Stretch"/>
+      <Grid ColumnDefinitions="*,8,*">
+        <Button x:Name="PlayBtn" Grid.Column="0" Content="Play" HorizontalAlignment="Stretch"/>
+        <Button x:Name="RenderBtn" Grid.Column="2" Content="Render…" HorizontalAlignment="Stretch"/>
+      </Grid>
+      <StackPanel Orientation="Horizontal" Spacing="16">
+        <CheckBox x:Name="LoopBox" Content="Loop" IsChecked="True"/>
+        <CheckBox x:Name="BypassBox" Content="Bypass"/>
+      </StackPanel>
+      <TextBlock x:Name="ActiveLabel" Text="" Foreground="#8ab4f8" FontSize="11" TextWrapping="Wrap"/>
+
+      <TextBlock Text="INPUT" Foreground="#9aa0a6" FontSize="11" Margin="0,8,0,0"/>
+      <local:LevelBar x:Name="InL" Height="9"/>
+      <local:LevelBar x:Name="InR" Height="9"/>
+      <TextBlock Text="OUTPUT" Foreground="#9aa0a6" FontSize="11" Margin="0,4,0,0"/>
+      <local:LevelBar x:Name="OutL" Height="9"/>
+      <local:LevelBar x:Name="OutR" Height="9"/>
+      <TextBlock Text="CLIPPING" Foreground="#9aa0a6" FontSize="11" Margin="0,10,0,0"/>
+      <Grid ColumnDefinitions="78,*,44" RowDefinitions="Auto,4,Auto">
+        <TextBlock Grid.Row="0" Grid.Column="0" x:Name="DriveClipName" Text="drive"
+                   Foreground="#f0aa3c" FontSize="11" VerticalAlignment="Center"/>
+        <local:ClipBar Grid.Row="0" Grid.Column="1" x:Name="DriveClipBar" Height="9"/>
+        <TextBlock Grid.Row="0" Grid.Column="2" x:Name="DriveClipVal" Text="—"
+                   Foreground="#9aa0a6" FontSize="10" TextAlignment="Right"
+                   FontFamily="Menlo,Consolas,monospace" VerticalAlignment="Center"/>
+
+        <TextBlock Grid.Row="2" Grid.Column="0" Text="output 0dB"
+                   Foreground="#e65046" FontSize="11" VerticalAlignment="Center"/>
+        <local:ClipBar Grid.Row="2" Grid.Column="1" x:Name="OutClipBar" Height="9" IsFault="True"/>
+        <TextBlock Grid.Row="2" Grid.Column="2" x:Name="OutClipVal" Text="0%"
+                   Foreground="#9aa0a6" FontSize="10" TextAlignment="Right"
+                   FontFamily="Menlo,Consolas,monospace" VerticalAlignment="Center"/>
+      </Grid>
+
+      <TextBlock x:Name="PosLabel" Text="" Foreground="#9aa0a6" FontSize="11" Margin="0,8,0,0"/>
+    </StackPanel>
+
+    <Grid Grid.Column="1">
+      <TextBlock x:Name="EmptyHint" Foreground="#80868b"
+                 HorizontalAlignment="Center" VerticalAlignment="Center"
+                 TextAlignment="Center" TextWrapping="Wrap" MaxWidth="420"
+                 Text="No units open.&#10;&#10;Pick a platform, then open a unit project directory — the one containing config.mk.&#10;&#10;The bench compiles that project a second time for this machine and loads the result. Your device artifact (.drmlgunit) is a 32-bit ARM ELF and cannot be loaded here.&#10;&#10;Each unit opens in its own tab with its own parameters."/>
+      <TabControl x:Name="Tabs" IsVisible="False"/>
+    </Grid>
+  </Grid>
+</Window>

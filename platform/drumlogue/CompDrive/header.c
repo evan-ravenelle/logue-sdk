@@ -32,7 +32,11 @@ const __unit_header unit_header_t unit_header = {
     {1, 30, 0, 1, k_unit_param_type_none, 0, 0, 0, {"Ratio"}},
     
     // Page 2
-    {0, 0, 0, 0, k_unit_param_type_bitmaps, 0, 0, 0, {"RMS"}},
+    // Range matters: the display repaints a parameter when its VALUE changes,
+    // and with min==max==0 the value could never change, so the meter only
+    // ever redrew on encoder movement or a page switch. The unit now reports
+    // the current level here (see getParameterValue) to drive the repaint.
+    {0, 15, 0, 0, k_unit_param_type_bitmaps, 0, 0, 0, {"RMS"}},
     {0, 24, 0, 0, k_unit_param_type_db, 1, 0, 0, {"Knee"}},
     {0, 24, 0, 0, k_unit_param_type_db, 0, 0, 0, {"Clipping"}},
     {0, 24, 0, 0, k_unit_param_type_db, 1, 0, 0, {"Makeup"}},

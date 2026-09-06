@@ -1,0 +1,14 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="CompDriveBench.App"
+             RequestedThemeVariant="Dark">
+             <!-- Dark, not Default: the window paints its own dark ground, so the
+                  theme must match or the built-in controls render dark-on-dark. -->
+
+    <Application.Styles>
+        <FluentTheme />
+        <!-- Node editor controls; the graph editor and the unit bench share
+             one app so design, compile and test stay in a single flow. -->
+        <StyleInclude Source="avares://NodeEditorAvalonia/Themes/NodeEditorTheme.axaml"/>
+    </Application.Styles>
+</Application>
